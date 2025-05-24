@@ -1,0 +1,49 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Lock Picks</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'custom-gray-900': '#111827', 
+              'custom-gray-800': '#1F2937',
+              'custom-gray-700': '#374151',
+              'custom-gray-600': '#4B5563',
+              'custom-gray-400': '#9CA3AF',
+              'custom-gray-300': '#D1D5DB',
+              'custom-blue-400': '#60A5FA',
+              'custom-blue-500': '#3B82F6',
+              'custom-blue-600': '#2563EB',
+              'custom-purple-500': '#A855F7',
+              'custom-green-400': '#4ADE80',
+              'custom-green-600': '#16A34A',
+              'custom-red-400': '#F87171',
+            }
+          }
+        }
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.0.1"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html><link rel="stylesheet" href="index.css">
+<script src="index.tsx" type="module"></script>
