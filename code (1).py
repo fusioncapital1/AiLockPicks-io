@@ -1,0 +1,146 @@
+import os
+import requests
+import time
+from datetime import datetime, timezone # For handling commence_time
+
+ODDS_API_KEY = os.environ.get('ODDS_API_KEY')
+if not ODDS_API_KEY:
+    raise ValueError("ODDS_API_KEY environment variable not set.")
+
+BASE_ODDS_API_URL = "https://api.the-odds-api.com/v4/sports"
+
+def get_upcoming_games_from_odds_api(sport_keys_list, regions='us', markets='h2h,spreads,totals', odds_format='american', date_format='iso'):
+    all_transformed_games = []
+
+    for sport_key in sport_keys_list:
+        print(f"Fetching data for sport: {sport_key} from The Odds API")
+        try:
+            params = {
+                'apiKey': ODDS_API_KEY,
+                'regions': regions,
+                'markets': markets,
+                'oddsFormat': odds_format,
+                'dateFormat': date_format,
+                # Consider adding 'bookmakers' parameter if you want to target specific ones
+                # 'eventIds': 'comma,separated,list,of,event,ids' # For specific events if needed later
+                # 'commenceTimeFrom', 'commenceTimeTo' # If you want to filter by date range directly in API call
+            }
+            
+            # Fetching current & upcoming odds for the sport
+            response = requests.get(f"{BASE_ODDS_API_URL}/{sport_key}/odds", params=params)
+            response.raise_for_status()  # Raise an exception for HTTP errors (4xx or 5xx)
+            
+            raw_games_data = response.json() # This is a list of game objects from The Odds API
+            print(f"Received {len(raw_games_data)} raw game events for {sport_key}")
+
+            # --- Data Transformation Loop ---
+            for game_event in raw_games_data:
+                # Basic info
+                commence_time_str = game_event.get("commence_time")
+                # Convert commence_time to a datetime object for filtering and sorting
+                # Ensure it's timezone-aware (The Odds API usually returns UTC - 'Z' at the end)
+                try:
+                    # Parse ISO format string from API (e.g., "2023-10-27T00:00:00Z")
+                    game_datetime_utc = datetime.fromisoformat(commence_time_str.replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    print(f"Warning: Could not parse commence_time '{commence_time_str}' for game ID {game_event.get('id')}")
+                    continue # Skip this game if date is unparseable
+
+                # --- !!! CRITICAL: Extract desired odds from game_event["bookmakers"] !!! ---
+                # This part is highly dependent on what odds you need and from which bookmakers.
+                # You'll need to iterate through game_event["bookmakers"], then their "markets", then "outcomes".
+                # For simplicity, let's assume we're just grabbing the first available H2H odds for now.
+                # In a real app, you'd want more robust logic here (e.g., specific bookies, best odds).
+                
+                extracted_odds = { # Placeholder for extracted odds
+                    "moneyline_home": None,
+                    "moneyline_away": None,
+                    "spread_home_points": None,
+                    "spread_home_price": None,
+                    "spread_away_points": None,
+                    "spread_away_price": None,
+                    "total_over_points": None,
+                    "total_over_price": None,
+                    "total_under_points": None,
+                    "total_under_price": None,
+                }
+
+                if game_event.get("bookmakers"):
+                    for bookmaker in game_event["bookmakers"]:
+                        for market in bookmaker.get("markets", []):
+                            if market.get("key") == "h2h": # Moneyline
+                                for outcome in market.get("outcomes", []):
+                                    if outcome.get("name") == game_event.get("home_team"):
+                                        extracted_odds["moneyline_home"] = outcome.get("price")
+                                    elif outcome.get("name") == game_event.get("away_team"):
+                                        extracted_odds["moneyline_away"] = outcome.get("price")
+                            elif market.get("key") == "spreads": # Spreads
+                                for outcome in market.get("outcomes", []):
+                                    if outcome.get("name") == game_event.get("home_team"):
+                                        extracted_odds["spread_home_points"] = outcome.get("point")
+                                        extracted_odds["spread_home_price"] = outcome.get("price")
+                                    elif outcome.get("name") == game_event.get("away_team"):
+                                        extracted_odds["spread_away_points"] = outcome.get("point")
+                                        extracted_odds["spread_away_price"] = outcome.get("price")
+                            elif market.get("key") == "totals": # Totals (Over/Under)
+                                for outcome in market.get("outcomes", []):
+                                    if outcome.get("name") == "Over":
+                                        extracted_odds["total_over_points"] = outcome.get("point")
+                                        extracted_odds["total_over_price"] = outcome.get("price")
+                                    elif outcome.get("name") == "Under":
+                                        extracted_odds["total_under_points"] = outcome.get("point")
+                                        extracted_odds["total_under_price"] = outcome.get("price")
+                        # You might want to break after finding odds from one preferred bookmaker
+                        if extracted_odds["moneyline_home"]: # Or some other check
+                            break 
+                # --- End of Odds Extraction Logic ---
+
+                transformed_game = {
+                    "api_game_id": game_event.get("id"),
+                    "sport_key": game_event.get("sport_key"),
+                    "sport_title": game_event.get("sport_title"),
+                    "commence_time_utc": game_datetime_utc.isoformat(), # Store as ISO string UTC
+                    "home_team": game_event.get("home_team"),
+                    "away_team": game_event.get("away_team"),
+                    "odds": extracted_odds, # The odds you've parsed
+                    # Add any other fields your AI or frontend needs
+                }
+                all_transformed_games.append(transformed_game)
+            
+            # Respect rate limits if fetching multiple sports sequentially
+            if len(sport_keys_list) > 1:
+                 time.sleep(1) # Wait 1 second before fetching the next sport
+
+        except requests.exceptions.RequestException as e:
+            print(f"HTTP Error fetching data for {sport_key}: {e}")
+            # Consider how to handle this - skip sport, retry, etc.
+        except Exception as e:
+            print(f"An unexpected error occurred processing {sport_key}: {e}")
+
+    # Sort all games by their commence time (earliest first)
+    all_transformed_games.sort(key=lambda x: x["commence_time_utc"])
+    
+    # Optional: Filter for games only in the near future (e.g., next 7 days) if API returns too many
+    # current_time_utc = datetime.now(timezone.utc)
+    # future_games = [
+    #     game for game in all_transformed_games 
+    #     if datetime.fromisoformat(game["commence_time_utc"]) > current_time_utc
+    # ]
+    # return future_games
+
+    return all_transformed_games
+
+# --- Example Usage (within your main app logic) ---
+# sport_keys_to_fetch = [
+#     'baseball_mlb',
+#     'basketball_nba',
+#     # Add more sport_keys from The Odds API documentation
+# ]
+# upcoming_games_for_ai = get_upcoming_games_from_odds_api(sport_keys_to_fetch)
+
+# for game in upcoming_games_for_ai:
+#     print(game) # To see the transformed data
+#     # Now, prepare prompt for Gemini using 'game' data and get prediction
+#     # gemini_prompt = f"Predict the outcome for {game['sport_title']}: {game['home_team']} vs {game['away_team']} on {game['commence_time_utc']}. Home ML: {game['odds'].get('moneyline_home')}, Away ML: {game['odds'].get('moneyline_away')}"
+#     # prediction = call_gemini(gemini_prompt)
+#     # ... etc.
