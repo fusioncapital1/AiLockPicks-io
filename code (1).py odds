@@ -1,7 +1,7 @@
 import os
 import requests
 import time
-from datetime import datetime, timezone # For handling commence_time
+from datetime import datetime, timezone, timedelta # For handling commence_time
 
 ODDS_API_KEY = os.environ.get('ODDS_API_KEY')
 if not ODDS_API_KEY:
@@ -31,8 +31,11 @@ def get_upcoming_games_from_odds_api(sport_keys_list, regions='us', markets='h2h
             response.raise_for_status()  # Raise an exception for HTTP errors (4xx or 5xx)
             
             raw_games_data = response.json() # This is a list of game objects from The Odds API
+            # print(f"Raw API response for {sport_key}: {raw_games_data}") # Potentially very verbose
             print(f"Received {len(raw_games_data)} raw game events for {sport_key}")
 
+            if not raw_games_data:
+                print(f"No game events returned by the API for {sport_key}. This could be due to the season being over or no games scheduled.")
             # --- Data Transformation Loop ---
             for game_event in raw_games_data:
                 # Basic info
@@ -124,17 +127,36 @@ def get_upcoming_games_from_odds_api(sport_keys_list, regions='us', markets='h2h
     # current_time_utc = datetime.now(timezone.utc)
     # future_games = [
     #     game for game in all_transformed_games 
-    #     if datetime.fromisoformat(game["commence_time_utc"]) > current_time_utc
-    # ]
-    # return future_games
+    # Filter for games only in the near future (e.g., next 7 days)
+    games_for_prediction_processing = []
+    current_time_utc = datetime.now(timezone.utc)
+    start_window = current_time_utc  # Only games from now onwards
+    end_window = current_time_utc + timedelta(days=7)
 
-    return all_transformed_games
+    print(f"Filtering {len(all_transformed_games)} games between {start_window.isoformat()} and {end_window.isoformat()}")
+
+    for game in all_transformed_games:
+        try:
+            # commence_time_utc is already an ISO string, parse it back to datetime
+            game_commence_time = datetime.fromisoformat(game["commence_time_utc"].replace('Z', '+00:00'))
+            if start_window <= game_commence_time < end_window:
+                games_for_prediction_processing.append(game)
+            # else: # Optional: log games outside the window for debugging
+            #     print(f"Game {game.get('api_game_id')} with time {game_commence_time.isoformat()} is outside the window.")
+        except Exception as e:
+            print(f"Error processing game for date filtering: {game.get('api_game_id')}, Error: {e}")
+            continue
+
+    print(f"Found {len(games_for_prediction_processing)} games within the 7-day window.")
+    return games_for_prediction_processing
 
 # --- Example Usage (within your main app logic) ---
 # sport_keys_to_fetch = [
 #     'baseball_mlb',
 #     'basketball_nba',
-#     # Add more sport_keys from The Odds API documentation
+#     'icehockey_nhl', # Added NHL
+#     # Add more sport_keys from The Odds API documentation:
+#     # e.g., 'soccer_epl' (English Premier League), 'soccer_mls' (Major League Soccer)
 # ]
 # upcoming_games_for_ai = get_upcoming_games_from_odds_api(sport_keys_to_fetch)
 
